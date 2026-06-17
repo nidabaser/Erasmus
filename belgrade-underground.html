@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Belgrade Underground — A Map of the Hidden City</title>
+
+<!-- Leaflet (needs internet for map tiles + library) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Fonts: degrade gracefully to system serif/sans if offline -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  :root{
+    --bg:#0d1117;
+    --bg-2:#11161e;
+    --panel:#161c26;
+    --panel-2:#1c242f;
+    --line:#2a323d;
+    --gold:#c5a028;
+    --gold-soft:#e0c163;
+    --parchment:#e9e1cf;
+    --muted:#9aa4b0;
+    --sepia:#b88a4a;
+    --verdigris:#5f9ea0;
+    --danger:#c45b4a;
+    --serif:"Playfair Display", Georgia, "Times New Roman", serif;
+    --sans:"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(197,160,40,.07), transparent 60%),
+      var(--bg);
+    color:var(--parchment);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.55;
+  }
+
+  /* ---------- Header ---------- */
+  header.topbar{
+    display:flex;align-items:center;gap:18px;
+    padding:14px 22px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(22,28,38,.95), rgba(13,17,23,.92));
+    position:sticky;top:0;z-index:1000;backdrop-filter:blur(6px);
+  }
+  .brand{display:flex;align-items:center;gap:14px;min-width:0;}
+  .brand .glyph{
+    flex:0 0 auto;width:42px;height:42px;border:1px solid var(--gold);
+    border-radius:50%;display:grid;place-items:center;color:var(--gold);
+    box-shadow:inset 0 0 18px rgba(197,160,40,.18);
+  }
+  .brand h1{
+    font-family:var(--serif);font-weight:700;font-size:22px;margin:0;
+    letter-spacing:.3px;white-space:nowrap;
+  }
+  .brand p{margin:0;font-size:12px;color:var(--muted);letter-spacing:.4px;}
+  .spacer{flex:1;}
+  .topbar .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+  button.btn{
+    font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;
+    color:var(--parchment);background:rgba(28,36,47,.7);
+    border:1px solid var(--line);border-radius:10px;padding:9px 14px;
+    display:inline-flex;align-items:center;gap:8px;transition:.18s;
+    backdrop-filter:blur(4px);
+  }
+  button.btn:hover{border-color:var(--gold);color:var(--gold-soft);}
+  button.btn.primary{border-color:var(--gold);color:var(--gold-soft);background:rgba(197,160,40,.08);}
+  .switch{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);user-select:none;}
+  .switch .track{width:42px;height:22px;border-radius:20px;background:#222b36;border:1px solid var(--line);position:relative;transition:.2s;cursor:pointer;}
+  .switch .track .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:.2s;}
+  .switch.on .track{background:rgba(197,160,40,.25);border-color:var(--gold);}
+  .switch.on .track .knob{left:22px;background:var(--gold);}
+
+  /* ---------- Layout ---------- */
+  .stage{display:flex;height:calc(100vh - 71px);min-height:480px;}
+  #map{flex:1 1 60%;height:100%;background:#0a0d12;z-index:1;}
+  aside.panel{
+    flex:0 0 40%;max-width:460px;height:100%;overflow-y:auto;
+    border-left:1px solid var(--line);background:var(--bg-2);
+    padding:0;
+  }
+
+  /* Quiz banner */
+  #quizBar{
+    display:none;padding:13px 18px;background:rgba(197,160,40,.1);
+    border-bottom:1px solid var(--gold);font-size:14px;
+  }
+  #quizBar.show{display:block;}
+  #quizBar .q-fact{font-family:var(--serif);font-style:italic;color:var(--gold-soft);font-size:15px;}
+  #quizBar .q-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;color:var(--muted);font-size:12px;}
+
+  /* ---------- POI panel content ---------- */
+  .panel-inner{padding:22px;}
+  .empty-state{padding:40px 26px;color:var(--muted);}
+  .empty-state h2{font-family:var(--serif);color:var(--parchment);font-size:20px;margin:0 0 10px;}
+  .empty-state ul{margin:18px 0 0;padding:0;list-style:none;}
+  .empty-state li{padding:9px 0;border-top:1px solid var(--line);font-size:13.5px;display:flex;gap:10px;align-items:flex-start;}
+  .empty-state li b{color:var(--gold-soft);font-weight:500;}
+
+  .poi-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin:0 0 6px;}
+  .poi-title{font-family:var(--serif);font-size:25px;line-height:1.2;margin:0 0 4px;}
+  .poi-sub{color:var(--muted);font-size:13px;margin:0 0 16px;}
+  .poi-desc{font-size:14.5px;color:#d7d0bf;margin:0 0 18px;}
+  .tag-row{display:flex;gap:8px;flex-wrap:wrap;margin:-6px 0 16px;}
+  .tag{font-size:11px;padding:4px 9px;border-radius:20px;border:1px solid var(--line);color:var(--muted);}
+  .tag.era{border-color:var(--sepia);color:var(--sepia);}
+
+  /* Then/Now SVG viewer */
+  .viewer{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#0a0d12;margin-bottom:14px;}
+  .viewer .scene{display:block;width:100%;height:auto;}
+  .viewer .vbar{display:flex;border-top:1px solid var(--line);}
+  .viewer .vbar button{
+    flex:1;background:transparent;border:0;color:var(--muted);font-family:var(--sans);
+    font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    padding:10px;cursor:pointer;transition:.15s;
+  }
+  .viewer .vbar button.active{background:rgba(197,160,40,.12);color:var(--gold-soft);}
+  .viewer .vbar button:first-child{border-right:1px solid var(--line);}
+
+  /* Audio mock */
+  .audio{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-bottom:12px;background:var(--panel);}
+  .audio button.play{width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:1px solid var(--gold);background:rgba(197,160,40,.1);color:var(--gold-soft);cursor:pointer;display:grid;place-items:center;}
+  .audio .meta{flex:1;min-width:0;}
+  .audio .meta .label{font-size:12.5px;color:var(--parchment);}
+  .audio .meta .note{font-size:11px;color:var(--muted);}
+  .audio .progress{height:4px;border-radius:4px;background:#222b36;margin-top:7px;overflow:hidden;}
+  .audio .progress > i{display:block;height:100%;width:0;background:var(--gold);transition:width .1s linear;}
+
+  a.sv-link{display:inline-flex;align-items:center;gap:8px;color:var(--verdigris);font-size:13px;text-decoration:none;border:1px solid var(--line);border-radius:10px;padding:9px 13px;transition:.15s;}
+  a.sv-link:hover{border-color:var(--verdigris);}
+
+  /* ---------- Gallery ---------- */
+  section.gallery{padding:30px 22px 60px;border-top:1px solid var(--line);background:var(--bg);}
+  section.gallery h2{font-family:var(--serif);font-size:22px;margin:0 0 4px;}
+  section.gallery .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;}
+  .card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel);position:relative;}
+  .card img{width:100%;height:140px;object-fit:cover;display:block;background:#0a0d12;}
+  .card .cap{padding:10px 12px;}
+  .card .cap .where{font-size:11px;color:var(--gold);letter-spacing:.5px;}
+  .card .cap .txt{font-size:13px;color:#d7d0bf;margin-top:3px;word-break:break-word;}
+  .card .del{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(13,17,23,.75);color:var(--muted);cursor:pointer;font-size:14px;}
+  .card .del:hover{color:var(--danger);}
+  .gallery-empty{color:var(--muted);font-size:13.5px;border:1px dashed var(--line);border-radius:12px;padding:26px;text-align:center;}
+
+  /* ---------- Modal ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(5,7,10,.72);display:none;align-items:center;justify-content:center;z-index:2000;padding:18px;backdrop-filter:blur(3px);}
+  .overlay.show{display:flex;}
+  .modal{width:100%;max-width:440px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;}
+  .modal h3{font-family:var(--serif);font-size:21px;margin:0 0 4px;}
+  .modal p.note{color:var(--muted);font-size:12.5px;margin:0 0 18px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;letter-spacing:.3px;}
+  .field input[type=text], .field select{
+    width:100%;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;
+    color:var(--parchment);font-family:var(--sans);font-size:14px;padding:10px 12px;
+  }
+  .field input[type=file]{font-size:13px;color:var(--muted);}
+  .drop{border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--muted);font-size:13px;}
+  .drop img{max-height:120px;border-radius:8px;margin-top:10px;}
+  .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel-2);border:1px solid var(--gold);color:var(--gold-soft);padding:12px 20px;border-radius:30px;font-size:13.5px;opacity:0;pointer-events:none;transition:.25s;z-index:3000;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* Leaflet marker */
+  .pin{width:30px;height:30px;border-radius:50% 50% 50% 0;background:var(--gold);transform:rotate(-45deg);border:2px solid #0d1117;box-shadow:0 3px 8px rgba(0,0,0,.5);display:grid;place-items:center;}
+  .pin > span{transform:rotate(45deg);color:#0d1117;font-size:14px;font-weight:700;font-family:var(--serif);}
+  .pin.quiz{background:#3a4654;}
+  .pin.quiz > span{color:#6b7888;}
+  .pin.solved{background:var(--verdigris);}
+  .leaflet-popup-content-wrapper{background:var(--panel);color:var(--parchment);border-radius:10px;}
+  .leaflet-popup-tip{background:var(--panel);}
+
+  .confetti{position:fixed;width:9px;height:14px;z-index:4000;pointer-events:none;top:-20px;}
+
+  footer.fineprint{padding:20px 22px;color:#6b7480;font-size:11.5px;border-top:1px solid var(--line);background:var(--bg);}
+  footer.fineprint a{color:var(--muted);}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:860px){
+    .stage{flex-direction:column;height:auto;}
+    #map{flex:none;height:48vh;min-height:320px;}
+    aside.panel{flex:none;max-width:none;width:100%;height:auto;max-height:none;border-left:0;border-top:1px solid var(--line);}
+    .brand p{display:none;}
+    .brand h1{font-size:18px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="glyph" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8l9-5 9 5M5 9v10h14V9M9 19v-6h6v6"/></svg>
+    </div>
+    <div>
+      <h1>Belgrade Underground</h1>
+      <p>The hidden city beneath Stari Grad — Roman, Austrian, and Cold War</p>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="actions">
+    <div class="switch" id="quizSwitch" role="switch" aria-checked="false" tabindex="0">
+      <span>Quiz mode</span>
+      <span class="track"><span class="knob"></span></span>
+    </div>
+    <button class="btn primary" id="addBtn">＋ Add your photo</button>
+  </div>
+</header>
+
+<div id="quizBar">
+  <div class="q-fact" id="quizFact">—</div>
+  <div class="q-meta">
+    <span id="quizHint">Tap the marker on the map that matches this clue.</span>
+    <span id="quizScore">Found 0 / 3</span>
+  </div>
+</div>
+
+<div class="stage">
+  <div id="map"></div>
+  <aside class="panel" id="panel">
+    <div class="empty-state" id="emptyState">
+      <h2>Eight doors into the buried city</h2>
+      <p>Belgrade was the Roman fort of <b style="color:var(--gold-soft)">Singidunum</b>, home to the IV Flavian Legion. The modern city was built directly on top of it — so its history runs downward, in layers.</p>
+      <p style="margin-top:12px">Tap a marker to descend. Each stop has a then-and-now cross-section, a short narration, and a Street View link to stand there yourself.</p>
+      <ul id="poiList"></ul>
+    </div>
+    <div class="panel-inner" id="poiContent" style="display:none;"></div>
+  </aside>
+</div>
+
+<section class="gallery">
+  <h2>Community Gallery</h2>
+  <p class="sub">Photos you take at these spots, saved in this browser. Nothing is uploaded to a server.</p>
+  <div class="grid" id="galleryGrid"></div>
+</section>
+
+<footer class="fineprint">
+  History compiled from public sources (Balkan Insight, the Institute of Archaeology Serbia, Live Science, Belgrade Fortress / Kalemegdan records). The "then" images are stylised cross-section illustrations, not photographs. Map tiles need an internet connection; everything else works offline. Built as a single HTML file — your photos live only in this browser's local storage.
+</footer>
+
+<!-- Upload modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3>Add a photo</h3>
+    <p class="note">Snap one of these places and pin it to the map. Saved locally on this device only.</p>
+    <div class="field">
+      <label>Which spot?</label>
+      <select id="upPoi"></select>
+    </div>
+    <div class="field">
+      <label>Photo</label>
+      <div class="drop" id="drop">
+        <span id="dropText">Choose an image…</span>
+        <input type="file" id="upFile" accept="image/*" style="display:block;margin:8px auto 0;" />
+        <img id="upPreview" style="display:none" alt="preview" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Caption (optional)</label>
+      <input type="text" id="upCaption" placeholder="e.g. The iron door of the Roman Well" maxlength="120" />
+    </div>
+    <div class="row">
+      <button class="btn" id="cancelUp">Cancel</button>
+      <button class="btn primary" id="saveUp">Save photo</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   DATA — eight verified sites of underground Belgrade
+   ========================================================= */
+const POIS = [
+  {
+    id:"castrum", marker:"I",
+    name:"Castrum of Singidunum",
+    sub:"Upper Town, Kalemegdan · 2nd century AD",
+    lat:44.8228, lng:20.4509,
+    era:"Roman", type:"wall",
+    tags:["IV Flavian Legion","Stone fort","~24 hectares"],
+    desc:"After Trajan's Dacian wars, the IV Flavian Legion raised a great stone fortress — a castrum about 560 by 350 metres — on the ridge above the Sava and Danube. Its ramparts, towers and gates covered roughly 24 hectares beneath today's Upper Town and Kalemegdan Park. Sections of Roman wall and a four-angled tower still survive at the northwest rampart, buried under later medieval and modern fortifications.",
+    audio:"A legionary's footsteps on the rampart walk, the river wind, distant Latin commands."
+  },
+  {
+    id:"romanwell", marker:"II",
+    name:"The \u201CRoman\u201D Well",
+    sub:"Rimski bunar, Upper Town · built 1717\u20131731",
+    lat:44.8233, lng:20.4505,
+    era:"Austrian", type:"well",
+    tags:["Not actually Roman","55 m deep","212 steps"],
+    desc:"Despite the name, this 55-metre shaft with its 212-step double spiral is not Roman at all. Austrians dug it as a water cistern for the fortress garrison between 1717 and 1731. Serbian fighters who later seized the fortress assumed every old structure was Roman, and the misnomer stuck. Dark legends cling to it — imprisoned conspirators left to madness, and skeletons reportedly found by divers in the 1960s.",
+    audio:"Water dripping far below, the groan of the iron door, an echo that takes seconds to return."
+  },
+  {
+    id:"library", marker:"III",
+    name:"Roman Hall under the City Library",
+    sub:"Knez Mihailova Street · civilian Singidunum",
+    lat:44.8205, lng:20.4540,
+    era:"Roman", type:"hall",
+    tags:["Beneath the library","Civilian town","Open to visitors"],
+    desc:"Beneath the Belgrade City Library on Knez Mihailova Street lie excavated remains of Roman Singidunum — foundations and walls of the civilian settlement that spread south from the legionary fort. It is one of the few places where you can stand directly among the ancient streets, a couple of metres below the busiest pedestrian promenade in modern Belgrade.",
+    audio:"Muffled footsteps of shoppers overhead, the hush of stone two metres beneath the street."
+  },
+  {
+    id:"barutana", marker:"IV",
+    name:"Barutana Lapidarium",
+    sub:"Lower Town, Kalemegdan · gunpowder magazine",
+    lat:44.8252, lng:20.4517,
+    era:"Roman + Austrian", type:"vault",
+    tags:["Tombstones","Sarcophagi","Vaulted tunnels"],
+    desc:"The Austrians built this barrel-vaulted magazine to keep gunpowder dry beside the damp riverbank. Today its underground tunnels hold a lapidarium — a collection of Roman tombstones, sarcophagi and carved stone gathered from across Singidunum. In its cool chambers you can read the names and epitaphs of soldiers and citizens who lived here eighteen centuries ago.",
+    audio:"Stone underfoot, the faint scrape of a sarcophagus lid, names of the dead read aloud."
+  },
+  {
+    id:"studentwell", marker:"V",
+    name:"The Real Roman Well",
+    sub:"Student Square (Njegoš Square) · genuine Roman",
+    lat:44.8185, lng:20.4596,
+    era:"Roman", type:"realwell",
+    tags:["The authentic one","Wattle-and-daub origins","Faculty of Philosophy"],
+    desc:"While Kalemegdan's \u201CRoman Well\u201D is a fake, a genuine Roman well sits on the square between the Faculty of Philosophy and the Captain Miša Building. The earliest architecture in Singidunum — humble wattle-and-daub structures predating the stone castrum — was also found nearby on Student Square, hinting that Rome's first foothold here was a modest civilian camp.",
+    audio:"Students crossing the square above; below, a bucket on a rope and the splash of clean water."
+  },
+  {
+    id:"aqueduct", marker:"VI",
+    name:"Aqueduct & Necropolis",
+    sub:"City-centre dig · 3rd\u20134th century tombs",
+    lat:44.8176, lng:20.4534,
+    era:"Roman", type:"aqueduct",
+    tags:["~60 m lead pipe","14 tombs","Found under a car park"],
+    desc:"During construction of an underground car park, archaeologists uncovered about 60 metres of lead aqueduct pipe and fourteen Roman tombs from the third and fourth centuries. The secondary water system — over 70 metres traced — drew from a spring near today's Tašmajdan and fed the fountains and private villas of Singidunum between the second and third centuries AD.",
+    audio:"Water running through lead pipe, the rasp of trowels, gravel shifting over a sealed grave."
+  },
+  {
+    id:"bunker", marker:"VII",
+    name:"The Tito\u2013Stalin Bunker",
+    sub:"Beneath Kalemegdan park · 1948 Informbiro",
+    lat:44.8240, lng:20.4525,
+    era:"Cold War", type:"bunker",
+    tags:["1948 split","Concrete shelter","Espionage era"],
+    desc:"Hidden beneath the park is a command bunker from the 1948 Tito\u2013Stalin split, when Yugoslavia broke with Moscow. Built for a leadership that feared a Soviet invasion, its concrete rooms belong to an age of espionage and brinkmanship — a twentieth-century layer in a city whose underground spans Neolithic caves, Roman forts, and nuclear-age shelters.",
+    audio:"A switchboard click, boots on concrete, a radio hiss carrying a coded message."
+  },
+  {
+    id:"tunnels", marker:"VIII",
+    name:"The Tunnel Labyrinth",
+    sub:"Beneath the fortress · Neolithic to modern",
+    lat:44.8245, lng:20.4500,
+    era:"Layered", type:"tunnels",
+    tags:["Spider's web","Mostly unexplored","Reaches to Zemun"],
+    desc:"Below the fortress runs a spider's web of tunnels, caves, dungeons and passages, some reaching back to the Neolithic. Hundreds of cellars and corridors thread under Kalemegdan and across the river toward Zemun; archaeologists estimate it could take decades to map them all. Much of this underworld has never been opened — sealed behind walls and forgotten stairwells.",
+    audio:"Dripping dark, your own breath, a passage branching into three you cannot see the end of."
+  }
+];
+
+/* Quiz facts → correct POI id */
+const QUIZ = [
+  {fact:"\u201CThey assumed every old thing was Roman — but Austrians dug this 212-step shaft in the 1700s.\u201D", id:"romanwell"},
+  {fact:"\u201CThe IV Flavian Legion built this 24-hectare stone fort after the wars in Dacia.\u201D", id:"castrum"},
+  {fact:"\u201CGunpowder once dried here; now it shelters Roman tombstones and sarcophagi.\u201D", id:"barutana"},
+  {fact:"\u201CA car-park dig revealed 60 metres of lead pipe and fourteen ancient graves.\u201D", id:"aqueduct"},
+  {fact:"\u201CThe genuine Roman well — sitting quietly between the Faculty of Philosophy and the Captain Miša Building.\u201D", id:"studentwell"},
+  {fact:"\u201CA concrete shelter from 1948, when Tito broke with Stalin.\u201D", id:"bunker"}
+];
+
+/* =========================================================
+   THEN / NOW cross-section illustrations (pure SVG, offline)
+   Each returns an SVG string for a given POI + view ('then'|'now')
+   ========================================================= */
+function scene(poi, view){
+  const W=420, H=240, ground=92;
+  const sky = view==='now'
+    ? `<rect width="${W}" height="${ground}" fill="#1c242f"/>
+       <rect width="${W}" height="14" y="${ground-14}" fill="#22303c"/>`
+    : `<rect width="${W}" height="${ground}" fill="#2a2118"/>
+       <rect width="${W}" height="14" y="${ground-14}" fill="#3a2c1c"/>`;
+  // soil layers below ground
+  const soil = `
+    <rect y="${ground}" width="${W}" height="${H-ground}" fill="#15110c"/>
+    <rect y="${ground}" width="${W}" height="20" fill="#241a12"/>
+    <rect y="${ground+20}" width="${W}" height="26" fill="#1d150e"/>
+    <line x1="0" y1="${ground+20}" x2="${W}" y2="${ground+20}" stroke="#3a2c1c" stroke-width="1" opacity=".6"/>
+    <line x1="0" y1="${ground+46}" x2="${W}" y2="${ground+46}" stroke="#3a2c1c" stroke-width="1" opacity=".4"/>`;
+
+  // surface element (modern) — shown stronger in 'now'
+  const surfOpacity = view==='now' ? 1 : .28;
+  let surface = `<g opacity="${surfOpacity}">
+      <rect x="40" y="${ground-46}" width="64" height="46" fill="#2c3744" stroke="#3a4654"/>
+      <rect x="120" y="${ground-58}" width="78" height="58" fill="#2c3744" stroke="#3a4654"/>
+      <rect x="214" y="${ground-40}" width="58" height="40" fill="#2c3744" stroke="#3a4654"/>
+      <rect x="300" y="${ground-66}" width="80" height="66" fill="#2c3744" stroke="#3a4654"/>
+      <circle cx="20" cy="${ground-30}" r="3" fill="#c5a028"/><line x1="20" y1="${ground-27}" x2="20" y2="${ground}" stroke="#3a4654" stroke-width="2"/>
+    </g>`;
+
+  // buried feature (the real subject) — shown stronger in 'then'
+  const burOpacity = view==='then' ? 1 : .45;
+  const gold="#c5a028", stone="#8a7a5a", line2="#5f4a30";
+  let buried="";
+  switch(poi.type){
+    case "well": case "realwell":
+      buried = `<g opacity="${burOpacity}">
+        <rect x="186" y="${ground-6}" width="48" height="${H-ground+4}" fill="#0a0d12" stroke="${stone}"/>
+        ${Array.from({length:9}).map((_,i)=>`<line x1="186" y1="${ground+12+i*15}" x2="234" y2="${ground+18+i*15}" stroke="${line2}" stroke-width="2"/>`).join("")}
+        <rect x="180" y="${ground-12}" width="60" height="10" rx="2" fill="${stone}"/>
+        <text x="210" y="${H-10}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">${poi.type==='well'?'cistern shaft':'Roman well'}</text>
+      </g>`; break;
+    case "wall":
+      buried = `<g opacity="${burOpacity}">
+        <rect x="60" y="${ground+8}" width="300" height="34" fill="#1a140d" stroke="${stone}"/>
+        ${Array.from({length:10}).map((_,i)=>`<line x1="${60+i*30}" y1="${ground+8}" x2="${60+i*30}" y2="${ground+42}" stroke="${line2}"/>`).join("")}
+        <line x1="60" y1="${ground+25}" x2="360" y2="${ground+25}" stroke="${line2}"/>
+        <rect x="320" y="${ground-18}" width="40" height="60" fill="#1a140d" stroke="${gold}"/>
+        <text x="210" y="${ground+90}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">castrum rampart &amp; tower</text>
+      </g>`; break;
+    case "hall":
+      buried = `<g opacity="${burOpacity}">
+        ${[70,150,230,310].map(x=>`<rect x="${x}" y="${ground+10}" width="20" height="64" fill="#1a140d" stroke="${stone}"/>`).join("")}
+        <rect x="60" y="${ground+8}" width="290" height="8" fill="${stone}"/>
+        <rect x="60" y="${ground+74}" width="290" height="8" fill="#1a140d" stroke="${line2}"/>
+        <text x="205" y="${H-12}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">foundations of the civilian town</text>
+      </g>`; break;
+    case "vault":
+      buried = `<g opacity="${burOpacity}">
+        <path d="M60 ${H} L60 ${ground+40} Q210 ${ground} 360 ${ground+40} L360 ${H} Z" fill="#1a140d" stroke="${stone}"/>
+        ${[120,180,240,300].map(x=>`<rect x="${x-6}" y="${ground+58}" width="12" height="28" rx="2" fill="${stone}"/>`).join("")}
+        <text x="210" y="${H-12}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">vault of tombstones</text>
+      </g>`; break;
+    case "aqueduct":
+      buried = `<g opacity="${burOpacity}">
+        <rect x="0" y="${ground+30}" width="${W}" height="14" fill="#1a140d" stroke="${gold}"/>
+        <line x1="0" y1="${ground+37}" x2="${W}" y2="${ground+37}" stroke="${gold}" stroke-dasharray="6 5" opacity=".7"/>
+        <rect x="90" y="${ground+70}" width="30" height="42" rx="3" fill="#1a140d" stroke="${stone}"/>
+        <rect x="160" y="${ground+70}" width="30" height="42" rx="3" fill="#1a140d" stroke="${stone}"/>
+        <rect x="250" y="${ground+70}" width="30" height="42" rx="3" fill="#1a140d" stroke="${stone}"/>
+        <text x="210" y="${H-10}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">lead pipe &amp; graves</text>
+      </g>`; break;
+    case "bunker":
+      buried = `<g opacity="${burOpacity}">
+        <rect x="70" y="${ground+18}" width="280" height="80" rx="4" fill="#11161e" stroke="#566270"/>
+        <line x1="160" y1="${ground+18}" x2="160" y2="${ground+98}" stroke="#566270"/>
+        <line x1="260" y1="${ground+18}" x2="260" y2="${ground+98}" stroke="#566270"/>
+        <circle cx="115" cy="${ground+58}" r="6" fill="${gold}"/>
+        <text x="210" y="${H-12}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic">command bunker</text>
+      </g>`; break;
+    case "tunnels":
+      buried = `<g opacity="${burOpacity}" fill="none" stroke="${stone}" stroke-width="9" stroke-linecap="round">
+        <path d="M40 ${ground+30} Q140 ${ground+10} 230 ${ground+50} T400 ${ground+40}"/>
+        <path d="M120 ${ground+95} Q200 ${ground+60} 300 ${ground+100}"/>
+        <path d="M70 ${ground+30} L120 ${ground+95}"/>
+        <path d="M230 ${ground+50} L260 ${ground+105}"/>
+      </g>
+      <text x="210" y="${H-8}" fill="${gold}" font-size="11" text-anchor="middle" font-family="serif" font-style="italic" opacity="${burOpacity}">labyrinth of passages</text>`; break;
+  }
+
+  return `<svg class="scene" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${view} view of ${poi.name}">
+    ${sky}${soil}${surface}${buried}
+    <text x="14" y="20" fill="${view==='now'?'#9aa4b0':gold}" font-size="11" letter-spacing="2" font-family="sans-serif">${view==='now'?'TODAY · STREET LEVEL':'THEN · WHAT LIES BENEATH'}</text>
+  </svg>`;
+}
+
+/* =========================================================
+   MAP
+   ========================================================= */
+const map = L.map('map',{zoomControl:true}).setView([44.8218,20.4520],15);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  attribution:'© OpenStreetMap © CARTO', maxZoom:20, subdomains:'abcd'
+}).addTo(map);
+
+const markers = {};
+function pinIcon(poi, state){
+  const cls = state==='quiz' ? 'pin quiz' : (state==='solved' ? 'pin solved' : 'pin');
+  const label = state==='quiz' ? '?' : poi.marker;
+  return L.divIcon({className:'', html:`<div class="${cls}"><span>${label}</span></div>`, iconSize:[30,30], iconAnchor:[15,30], popupAnchor:[0,-30]});
+}
+POIS.forEach(poi=>{
+  const m = L.marker([poi.lat,poi.lng],{icon:pinIcon(poi,'normal')}).addTo(map);
+  m.on('click',()=>onMarkerClick(poi));
+  markers[poi.id]=m;
+});
+
+/* =========================================================
+   PANEL RENDERING
+   ========================================================= */
+const emptyState=document.getElementById('emptyState');
+const poiContent=document.getElementById('poiContent');
+const poiListEl=document.getElementById('poiList');
+
+POIS.forEach(p=>{
+  const li=document.createElement('li');
+  li.innerHTML=`<b>${p.marker}.</b><span>${p.name} <span style="color:#6b7480">— ${p.era}</span></span>`;
+  li.style.cursor='pointer';
+  li.onclick=()=>onMarkerClick(p);
+  poiListEl.appendChild(li);
+});
+
+let audioTimer=null;
+function onMarkerClick(poi){
+  if(quizOn){ checkQuizAnswer(poi); return; }
+  map.flyTo([poi.lat,poi.lng], 16, {duration:.6});
+  renderPOI(poi);
+}
+
+function renderPOI(poi){
+  if(audioTimer){clearInterval(audioTimer);audioTimer=null;}
+  emptyState.style.display='none';
+  poiContent.style.display='block';
+  poiContent.scrollTop=0;
+  document.getElementById('panel').scrollTop=0;
+
+  const sv=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${poi.lat},${poi.lng}`;
+  poiContent.innerHTML=`
+    <p class="poi-eyebrow">${poi.sub}</p>
+    <h2 class="poi-title">${poi.name}</h2>
+    <div class="tag-row">
+      <span class="tag era">${poi.era}</span>
+      ${poi.tags.map(t=>`<span class="tag">${t}</span>`).join("")}
+    </div>
+    <div class="viewer">
+      <div id="sceneHolder">${scene(poi,'then')}</div>
+      <div class="vbar">
+        <button id="btnThen" class="active">Then · buried</button>
+        <button id="btnNow">Now · street</button>
+      </div>
+    </div>
+    <div class="audio">
+      <button class="play" id="playBtn" aria-label="Play narration">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <div class="meta">
+        <div class="label">30-second narration <span style="color:#6b7480">(placeholder)</span></div>
+        <div class="note" id="audioNote">${poi.audio}</div>
+        <div class="progress"><i id="audioFill"></i></div>
+      </div>
+    </div>
+    <p class="poi-desc">${poi.desc}</p>
+    <a class="sv-link" href="${sv}" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/></svg>
+      Stand here in Google Street View
+    </a>
+  `;
+
+  // then/now toggle
+  const holder=document.getElementById('sceneHolder');
+  const bThen=document.getElementById('btnThen'), bNow=document.getElementById('btnNow');
+  bThen.onclick=()=>{holder.innerHTML=scene(poi,'then');bThen.classList.add('active');bNow.classList.remove('active');};
+  bNow.onclick =()=>{holder.innerHTML=scene(poi,'now'); bNow.classList.add('active'); bThen.classList.remove('active');};
+
+  // mock audio
+  const playBtn=document.getElementById('playBtn');
+  const fill=document.getElementById('audioFill');
+  let playing=false, t=0;
+  playBtn.onclick=()=>{
+    if(playing){clearInterval(audioTimer);audioTimer=null;playing=false;playBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';return;}
+    playing=true; t=0;
+    playBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
+    console.log('▶ play audio:',poi.id);
+    audioTimer=setInterval(()=>{
+      t+=0.2; fill.style.width=Math.min(100,(t/30)*100)+'%';
+      if(t>=30){clearInterval(audioTimer);audioTimer=null;playing=false;fill.style.width='0%';
+        playBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';}
+    },200);
+  };
+}
+
+/* =========================================================
+   QUIZ MODE
+   ========================================================= */
+let quizOn=false, quizIndex=0, solved=0, quizOrder=[];
+const quizSwitch=document.getElementById('quizSwitch');
+const quizBar=document.getElementById('quizBar');
+
+function setMarkerStates(){
+  POIS.forEach(p=>{
+    let state='normal';
+    if(quizOn) state = p._solved ? 'solved' : 'quiz';
+    markers[p.id].setIcon(pinIcon(p,state));
+  });
+}
+function startQuiz(){
+  quizOn=true; solved=0; quizIndex=0;
+  POIS.forEach(p=>p._solved=false);
+  quizOrder=[...QUIZ].sort(()=>Math.random()-0.5).slice(0,3);
+  quizBar.classList.add('show');
+  quizSwitch.classList.add('on'); quizSwitch.setAttribute('aria-checked','true');
+  emptyState.style.display='block'; poiContent.style.display='none';
+  setMarkerStates(); showQuizFact();
+}
+function stopQuiz(){
+  quizOn=false;
+  quizBar.classList.remove('show');
+  quizSwitch.classList.remove('on'); quizSwitch.setAttribute('aria-checked','false');
+  setMarkerStates();
+}
+function showQuizFact(){
+  if(quizIndex>=quizOrder.length) return;
+  document.getElementById('quizFact').textContent=quizOrder[quizIndex].fact;
+  document.getElementById('quizScore').textContent=`Found ${solved} / 3`;
+}
+function checkQuizAnswer(poi){
+  const target=quizOrder[quizIndex];
+  if(!target) return;
+  if(poi.id===target.id){
+    poi._solved=true; solved++; quizIndex++;
+    setMarkerStates();
+    if(solved>=3){
+      document.getElementById('quizFact').textContent="You found the lost chamber.";
+      document.getElementById('quizHint').textContent="All three clues solved — the buried city is yours.";
+      document.getElementById('quizScore').textContent="Found 3 / 3 ✦";
+      celebrate();
+      setTimeout(stopQuiz, 4000);
+    } else {
+      toast("Correct — descend further.");
+      showQuizFact();
+    }
+  } else {
+    toast("Not that one. Read the clue again.");
+    const el=markers[poi.id].getElement();
+    if(el){el.animate([{transform:'rotate(-45deg) scale(1)'},{transform:'rotate(-45deg) scale(1.3)'},{transform:'rotate(-45deg) scale(1)'}],{duration:300});}
+  }
+}
+quizSwitch.onclick=()=> quizOn?stopQuiz():startQuiz();
+quizSwitch.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();quizSwitch.onclick();}};
+
+/* confetti */
+function celebrate(){
+  const colors=['#c5a028','#e0c163','#5f9ea0','#e9e1cf'];
+  for(let i=0;i<90;i++){
+    const c=document.createElement('div');
+    c.className='confetti';
+    c.style.left=Math.random()*100+'vw';
+    c.style.background=colors[i%colors.length];
+    c.style.transform=`rotate(${Math.random()*360}deg)`;
+    document.body.appendChild(c);
+    const dur=2200+Math.random()*1600;
+    c.animate([{top:'-20px',opacity:1},{top:'100vh',opacity:.9}],{duration:dur,easing:'cubic-bezier(.3,.6,.5,1)'});
+    setTimeout(()=>c.remove(),dur);
+  }
+}
+
+/* =========================================================
+   PHOTO UPLOADS (localStorage)
+   ========================================================= */
+const KEY='belgrade_underground_photos_v1';
+const overlay=document.getElementById('overlay');
+const upPoi=document.getElementById('upPoi');
+const upFile=document.getElementById('upFile');
+const upPreview=document.getElementById('upPreview');
+const dropText=document.getElementById('dropText');
+const upCaption=document.getElementById('upCaption');
+let pendingImage=null;
+
+POIS.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;upPoi.appendChild(o);});
+
+document.getElementById('addBtn').onclick=()=>{overlay.classList.add('show');};
+document.getElementById('cancelUp').onclick=closeModal;
+overlay.onclick=(e)=>{if(e.target===overlay)closeModal();};
+function closeModal(){
+  overlay.classList.remove('show');
+  pendingImage=null; upFile.value=''; upCaption.value='';
+  upPreview.style.display='none'; dropText.style.display='block';
+}
+upFile.onchange=()=>{
+  const f=upFile.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{pendingImage=r.result;upPreview.src=r.result;upPreview.style.display='block';dropText.style.display='none';};
+  r.readAsDataURL(f);
+};
+document.getElementById('saveUp').onclick=()=>{
+  if(!pendingImage){toast("Choose a photo first.");return;}
+  const photos=loadPhotos();
+  photos.unshift({id:Date.now(),poi:upPoi.value,caption:upCaption.value.trim(),img:pendingImage});
+  try{ localStorage.setItem(KEY,JSON.stringify(photos)); }
+  catch(e){ toast("Browser storage is full — try a smaller image."); return; }
+  closeModal(); renderGallery(); toast("Photo saved to this browser.");
+};
+function loadPhotos(){try{return JSON.parse(localStorage.getItem(KEY))||[];}catch(e){return [];}}
+function poiName(id){const p=POIS.find(x=>x.id===id);return p?p.name:id;}
+function renderGallery(){
+  const grid=document.getElementById('galleryGrid');
+  const photos=loadPhotos();
+  if(!photos.length){grid.innerHTML=`<div class="gallery-empty">No photos yet. Visit a site, then tap <b style="color:var(--gold-soft)">＋ Add your photo</b> to pin one here.</div>`;return;}
+  grid.innerHTML='';
+  photos.forEach(ph=>{
+    const card=document.createElement('div');card.className='card';
+    card.innerHTML=`
+      <button class="del" title="Delete" data-id="${ph.id}">✕</button>
+      <img src="${ph.img}" alt="${ph.caption||poiName(ph.poi)}" />
+      <div class="cap"><div class="where">${poiName(ph.poi)}</div>
+      <div class="txt">${ph.caption?escapeHtml(ph.caption):'<span style="color:#6b7480">No caption</span>'}</div></div>`;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll('.del').forEach(b=>b.onclick=()=>{
+    const id=Number(b.dataset.id);
+    localStorage.setItem(KEY,JSON.stringify(loadPhotos().filter(p=>p.id!==id)));
+    renderGallery();
+  });
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* toast */
+let toastTimer=null;
+function toast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400);
+}
+
+renderGallery();
+</script>
+</body>
+</html>
